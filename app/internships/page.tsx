@@ -9,13 +9,14 @@ import { InternshipCard } from "@/components/internship-card"
 import { Target, Search, Filter, MapPin, Briefcase } from "lucide-react"
 import Link from "next/link"
 import type { Internship } from "@/lib/types"
+import { createClient } from "@/lib/supabase/client"
 
 export default function InternshipsPage() {
   const [internships, setInternships] = useState<Internship[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [locationFilter, setLocationFilter] = useState("")
-  const [remoteFilter, setRemoteFilter] = useState("all") // Updated default value
+  const [remoteFilter, setRemoteFilter] = useState("all")
   const [skillsFilter, setSkillsFilter] = useState("")
 
   useEffect(() => {
@@ -25,20 +26,48 @@ export default function InternshipsPage() {
   const loadInternships = async () => {
     setIsLoading(true)
     try {
-      const params = new URLSearchParams()
-      if (searchTerm) params.append("search", searchTerm)
-      if (locationFilter) params.append("location", locationFilter)
-      if (remoteFilter !== "all") params.append("remote", remoteFilter)
-      if (skillsFilter) params.append("skills", skillsFilter)
+      const supabase = createClient()
+      let query = supabase.from("Internship_Data").select("*") // replace with exact table name
 
-      const response = await fetch(`/api/internships?${params}`)
-      const data = await response.json()
+      if (searchTerm) query = query.ilike("Job Title", `%${searchTerm}%`)       // works
+      if (locationFilter) query = query.ilike("Location", `%${locationFilter}%`) // works
+      if (remoteFilter !== "all") query = query.eq("Remote", remoteFilter === "true") // works
+      if (skillsFilter) query = query.contains("Skills", [skillsFilter]) 
+     
+      const { data, error } = await query
 
-      if (response.ok) {
-        setInternships(data.internships || [])
-      }
-    } catch (error) {
-      console.error("Error loading internships:", error)
+      if (error) {
+        console.error("Error fetching internships:", error.message)
+        setInternships([])
+      } else {
+    // Map DB columns to match Internship type
+    const mappedData: Internship[] = data.map((row) => ({
+      id: row.id,
+      company_id: row.company_id ?? "", // fallback if missing
+      title: row["Job Title"] ?? "",
+      requirements: row.requirements ?? "",
+      skills_required: row.skills_required ?? [],
+      location: row.Location ?? "",
+      postedDate: row["Posted Date"] ?? "",
+      deadline: row.Deadline ?? "",
+      company: row.Company ?? "",
+      jobUrl: row["Job URL"] ?? "",
+      department: row.Department ?? "",
+      stipend: row.Stipend ?? "",
+      description: row["Brief Description"] ?? "",
+      skills: row.Skills ?? [],
+      remote: row.Remote ?? false,
+      stipend_currency: row.stipend_currency ?? "",
+      is_active: row.is_active ?? true,
+      created_at: row.created_at ?? "",
+      updated_at: row.updated_at ?? "",
+    }))
+    setInternships(mappedData)
+}
+
+    } catch (err) {
+      console.error("Unexpected error:", err)
+      setInternships([])
     } finally {
       setIsLoading(false)
     }
@@ -170,7 +199,7 @@ export default function InternshipsPage() {
                 onClick={() => {
                   setSearchTerm("")
                   setLocationFilter("")
-                  setRemoteFilter("all") // Updated default value
+                  setRemoteFilter("all")
                   setSkillsFilter("")
                 }}
               >

@@ -1,71 +1,29 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useRouter } from "next/navigation"
+import { supabase } from "@/lib/supabaseClient"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { ResumeUpload } from "@/components/resume-upload"
 import { Target, Plus, X, Save, User } from "lucide-react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 
-const COMMON_SKILLS = [
-  "JavaScript",
-  "Python",
-  "React",
-  "Node.js",
-  "TypeScript",
-  "Java",
-  "C++",
-  "SQL",
-  "HTML",
-  "CSS",
-  "Machine Learning",
-  "Data Analysis",
-  "UI/UX Design",
-  "Mobile Development",
-  "Cloud Computing",
-  "DevOps",
-  "API Development",
-  "Database Design",
-  "Git",
-  "Docker",
-  "AWS",
-  "Figma",
-  "Photoshop",
-]
 
-const COMMON_INTERESTS = [
-  "Artificial Intelligence",
-  "Web Development",
-  "Mobile Apps",
-  "Data Science",
-  "Cybersecurity",
-  "Fintech",
-  "Healthcare Tech",
-  "E-commerce",
-  "Gaming",
-  "Social Media",
-  "EdTech",
-  "CleanTech",
-  "Blockchain",
-  "IoT",
-  "Robotics",
-  "AR/VR",
-  "Cloud Computing",
-  "DevOps",
-  "UI/UX Design",
-]
+const COMMON_SKILLS = ["JavaScript","Python","React","Node.js","TypeScript","Java","C++","SQL","HTML","CSS","Machine Learning","Data Analysis","UI/UX Design","Mobile Development","Cloud Computing","DevOps","API Development","Database Design","Git","Docker","AWS","Figma","Photoshop"]
+const COMMON_INTERESTS = ["Artificial Intelligence","Web Development","Mobile Apps","Data Science","Cybersecurity","Fintech","Healthcare Tech","E-commerce","Gaming","Social Media","EdTech","CleanTech","Blockchain","IoT","Robotics","AR/VR","Cloud Computing","DevOps","UI/UX Design"]
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState({
+    user_id: "",
     skills: [] as string[],
     interests: [] as string[],
-    experience_level: "",
+    experience: "",
     preferred_location: "",
     bio: "",
     github_url: "",
@@ -73,116 +31,172 @@ export default function ProfilePage() {
     portfolio_url: "",
     resume_url: "",
   })
+
   const [newSkill, setNewSkill] = useState("")
   const [newInterest, setNewInterest] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [message, setMessage] = useState("")
   const router = useRouter()
 
+  // Load user session & profile
   useEffect(() => {
-    loadProfile()
-  }, [])
-
-  const loadProfile = async () => {
-    setIsLoading(true)
-    try {
-      const response = await fetch("/api/profile")
-      const data = await response.json()
-
-      if (data.profile) {
-        setProfile(data.profile)
-      }
-    } catch (error) {
-      console.error("Error loading profile:", error)
-    } finally {
-      setIsLoading(false)
+  const fetchProfile = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) {
+      router.push("/signin") // redirect if not logged in
+      return
     }
+
+    const userId = session.user.id
+
+    // Try to fetch existing profile
+    const { data, error } = await supabase
+      .from("user_profiles")
+      .select("*")
+      .eq("user_id", userId)
+      .single()
+
+    if (error && error.code === "PGRST116") {
+      // No profile exists yet, create one
+      const { data: insertData, error: insertError } = await supabase
+        .from("user_profiles")
+        .insert({ user_id: userId })
+        .select()
+        .single()
+      if (insertError) {
+        setMessage(insertError.message)
+        setIsLoading(false)
+        return
+      }
+      setProfile(insertData)
+    } else if (error) {
+      console.error(error)
+      setMessage(error.message)
+    } else if (data) {
+      setProfile(data)
+    }
+
+    setIsLoading(false)
   }
 
-  const handleSave = async () => {
-    setIsSaving(true)
-    setMessage("")
+  fetchProfile()
+}, [router])
 
-    try {
-      const response = await fetch("/api/profile", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(profile),
-      })
 
-      if (response.ok) {
-        setMessage("Profile saved successfully!")
-        // Generate recommendations after profile update
-        await fetch("/api/recommendations", { method: "POST" })
-        setTimeout(() => {
-          router.push("/dashboard")
-        }, 1500)
-      } else {
-        const data = await response.json()
-        setMessage(data.error || "Error saving profile")
-      }
-    } catch (error) {
-      setMessage("Error saving profile")
-    } finally {
+const handleSave = async () => {
+  setIsSaving(true)
+  setMessage("")
+
+  // 1️⃣ Get user session
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session?.user) {
+    setMessage("User not logged in")
+    setIsSaving(false)
+    return
+  }
+  const userId = session.user.id
+
+  const profileData = {
+    ...profile,
+    user_id: userId,
+    skills: profile.skills ?? [],
+    interests: profile.interests ?? [],
+    experience: profile.experience ?? "",
+    preferred_location: profile.preferred_location ?? "",
+    bio: profile.bio ?? "",
+    github_url: profile.github_url ?? "",
+    linkedin_url: profile.linkedin_url ?? "",
+    portfolio_url: profile.portfolio_url ?? "",
+    resume_url: profile.resume_url ?? "",
+  }
+
+
+  if (profileData.resumeFile) {
+    const file = profileData.resumeFile
+
+    // Optional: restrict to PDFs
+    if (file.type !== "application/pdf") {
+      setMessage("Only PDF files are allowed")
       setIsSaving(false)
+      return
+    }
+
+    try {
+      const filePath = `resumes/${userId}/${Date.now()}-${file.name}`
+      const { error: uploadError } = await supabase.storage
+        .from("resumes")
+        .upload(filePath, file, { cacheControl: "3600", upsert: true })
+
+      if (uploadError) {
+        setMessage(`Failed to upload resume: ${uploadError.message}`)
+        setIsSaving(false)
+        return
+      }
+
+      // Get public URL
+      const { data } = supabase.storage.from("resumes").getPublicUrl(filePath)
+      profile.resume_url = data.publicUrl
+    } catch (err: any) {
+      setMessage(`Error uploading resume: ${err.message}`)
+      setIsSaving(false)
+      return
     }
   }
+
+
+
+  const { error } = await supabase
+    .from("user_profiles")
+    .upsert(profileData)
+    .eq("user_id", userId)
+
+  if (error) setMessage(error.message)
+  else {
+    setMessage("Profile saved successfully!")
+    setTimeout(() => router.push("/dashboard"), 1500)
+  }
+
+  setIsSaving(false)
+}
 
   const addSkill = (skill: string) => {
-    if (skill && !profile.skills.includes(skill)) {
-      setProfile((prev) => ({
-        ...prev,
-        skills: [...prev.skills, skill],
-      }))
+    if (skill && !(profile.skills ?? []).includes(skill)) {
+      setProfile((prev) => ({ ...prev, skills: [...(prev.skills ?? []),skill], }))
       setNewSkill("")
     }
   }
 
   const removeSkill = (skill: string) => {
-    setProfile((prev) => ({
-      ...prev,
-      skills: prev.skills.filter((s) => s !== skill),
-    }))
+    setProfile((prev) => ({ ...prev, skills: prev.skills.filter((s) => s !== skill) }))
   }
 
   const addInterest = (interest: string) => {
-    if (interest && !profile.interests.includes(interest)) {
-      setProfile((prev) => ({
-        ...prev,
-        interests: [...prev.interests, interest],
-      }))
+    if (interest && !(profile.interests ?? []).includes(interest)) {
+      setProfile((prev) => ({ ...prev, interests: [...(prev.interests ?? []), interest] }))
       setNewInterest("")
     }
   }
 
   const removeInterest = (interest: string) => {
-    setProfile((prev) => ({
-      ...prev,
-      interests: prev.interests.filter((i) => i !== interest),
-    }))
+    setProfile((prev) => ({ ...prev, interests: prev.interests.filter((i) => i !== interest) }))
   }
 
   const handleResumeUploadSuccess = (data: any) => {
-    if (data.parsed_data) {
-      // Auto-populate skills from parsed resume
-      const newSkills = data.parsed_data.skills.filter((skill: string) => !profile.skills.includes(skill))
-
-      if (newSkills.length > 0) {
-        setProfile((prev) => ({
-          ...prev,
-          skills: [...prev.skills, ...newSkills],
-          resume_url: data.resume_url,
-        }))
+    if (data.resume_url) {
+      setProfile((prev) => ({ ...prev, resume_url: data.resume_url }))
+      if (data.parsed_data?.skills) {
+        setProfile((prev) => {
+          const newSkills = data.parsed_data.skills.filter((s: string) => !prev.skills.includes(s))
+          return { ...prev, skills: [...prev.skills, ...newSkills] }
+        })
       }
     }
   }
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-muted-foreground">Loading profile...</p>
@@ -191,7 +205,7 @@ export default function ProfilePage() {
     )
   }
 
-  return (
+ return (
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-50">
@@ -244,7 +258,20 @@ export default function ProfilePage() {
 
         <div className="space-y-8">
           {/* Resume Upload Section */}
-          <ResumeUpload currentResumeUrl={profile.resume_url} onUploadSuccess={handleResumeUploadSuccess} />
+          <ResumeUpload
+            currentResumeUrl={profile.resume_url}
+            onUploadSuccess={(data) => {
+              setProfile((prev) => ({
+                ...prev,
+                resume_url: data.resume_url, // the public URL
+                resumeFile: null,            // we no longer need the local file
+                skills: data.parsed_data?.skills || prev.skills,
+                experience: data.parsed_data?.experience?.join(", ") || prev.experience,
+              }));
+            }}
+          />
+
+
 
           <div className="grid lg:grid-cols-2 gap-8">
             {/* Skills Section */}
@@ -270,32 +297,35 @@ export default function ProfilePage() {
 
                 <div className="space-y-3">
                   <p className="text-sm font-medium">Popular Skills:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {COMMON_SKILLS.filter((skill) => !profile.skills.includes(skill))
-                      .slice(0, 8)
-                      .map((skill) => (
-                        <Badge
-                          key={skill}
-                          variant="outline"
-                          className="cursor-pointer hover:bg-primary hover:text-primary-foreground"
-                          onClick={() => addSkill(skill)}
-                        >
+                    <div className="flex flex-wrap gap-2">
+                      {COMMON_SKILLS.filter((skill) => !(profile.skills ?? []).includes(skill))
+                        .slice(0, 8)
+                        .map((skill) => (
+                          <Badge
+                            key={skill}
+                            variant="outline"
+                            className="cursor-pointer hover:bg-primary hover:text-primary-foreground"
+                            onClick={() => addSkill(skill)}
+                          >
+                            {skill}
+                          </Badge>
+                        ))}
+                    </div>
+                  </div>
+
+                <div className="space-y-3">
+                  <p className="text-sm font-medium">Your Skills:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(profile.skills ?? []).map((skill) => (
+                        <Badge key={skill} className="flex items-center gap-1">
                           {skill}
+                          <X
+                            className="w-3 h-3 cursor-pointer hover:text-red-500"
+                            onClick={() => removeSkill(skill)}
+                          />
                         </Badge>
                       ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">Your Skills:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {profile.skills.map((skill) => (
-                      <Badge key={skill} className="flex items-center gap-1">
-                        {skill}
-                        <X className="w-3 h-3 cursor-pointer hover:text-red-500" onClick={() => removeSkill(skill)} />
-                      </Badge>
-                    ))}
-                  </div>
+                    </div>
                 </div>
               </CardContent>
             </Card>
@@ -322,7 +352,9 @@ export default function ProfilePage() {
                 <div className="space-y-3">
                   <p className="text-sm font-medium">Popular Interests:</p>
                   <div className="flex flex-wrap gap-2">
-                    {COMMON_INTERESTS.filter((interest) => !profile.interests.includes(interest))
+                    {COMMON_INTERESTS.filter(
+                      (interest) => !(profile.interests ??[]).includes(interest)
+                    )
                       .slice(0, 8)
                       .map((interest) => (
                         <Badge
@@ -340,7 +372,7 @@ export default function ProfilePage() {
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Your Interests:</p>
                   <div className="flex flex-wrap gap-2">
-                    {profile.interests.map((interest) => (
+                    {(profile.interests ?? []).map((interest) => (
                       <Badge key={interest} className="flex items-center gap-1">
                         {interest}
                         <X
@@ -364,8 +396,8 @@ export default function ProfilePage() {
                 <div className="space-y-2">
                   <Label htmlFor="experience">Experience Level</Label>
                   <Select
-                    value={profile.experience_level}
-                    onValueChange={(value) => setProfile((prev) => ({ ...prev, experience_level: value }))}
+                    value={profile.experience}
+                    onValueChange={(value) => setProfile((prev) => ({ ...prev, experience: value }))}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Select your experience level" />

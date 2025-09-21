@@ -16,6 +16,9 @@ const gradientClasses = ["gradient-emerald", "gradient-blue", "gradient-orange",
 export function InternshipCard({ internship, matchScore, showMatchScore = false }: InternshipCardProps) {
   const gradientClass = gradientClasses[Math.floor(Math.random() * gradientClasses.length)]
 
+  // Ensure skills_required is always an array
+  const skills = Array.isArray(internship.skills_required) ? internship.skills_required : []
+
   return (
     <Card className="overflow-hidden border-0 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1 animate-fade-in">
       <div className={`${gradientClass} h-2`}></div>
@@ -27,7 +30,11 @@ export function InternshipCard({ internship, matchScore, showMatchScore = false 
             </div>
             <div>
               <CardTitle className="text-lg line-clamp-1">{internship.title}</CardTitle>
-              <p className="text-sm text-muted-foreground">{internship.company?.name}</p>
+              <p className="text-sm text-muted-foreground">
+                {typeof internship.company === "string"
+                  ? internship.company
+                  : internship.company?.name}
+              </p>
             </div>
           </div>
           <div className="flex flex-col items-end gap-2">
@@ -46,16 +53,17 @@ export function InternshipCard({ internship, matchScore, showMatchScore = false 
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Description */}
         <p className="text-sm text-muted-foreground line-clamp-2">{internship.description}</p>
         <div className="flex flex-wrap gap-2">
-          {internship.skills_required.slice(0, 3).map((skill) => (
+          {skills.slice(0, 3).map((skill) => (
             <Badge key={skill} variant="outline" className="text-xs">
               {skill}
             </Badge>
           ))}
-          {internship.skills_required.length > 3 && (
+          {skills.length > 3 && (
             <Badge variant="outline" className="text-xs">
-              +{internship.skills_required.length - 3} more
+              +{skills.length - 3} more
             </Badge>
           )}
         </div>

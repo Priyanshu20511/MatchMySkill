@@ -1,61 +1,75 @@
-import { createClient } from "@/lib/supabase/server"
 import { type NextRequest, NextResponse } from "next/server"
+import { createClient } from "@/lib/supabase/server"
 
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
 
+    //check user
     const {
       data: { user },
       error: authError,
     } = await supabase.auth.getUser()
+
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const formData = await request.formData()
-    const file = formData.get("resume") as File
+    const file = formData.get("resume") as File | null
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 })
     }
 
-    // Validate file type
+    //  validate file type
     const allowedTypes = [
       "application/pdf",
       "application/msword",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ]
     if (!allowedTypes.includes(file.type)) {
-      return NextResponse.json({ error: "Invalid file type. Please upload a PDF or Word document." }, { status: 400 })
+      return NextResponse.json(
+        { error: "Invalid file type. Please upload a PDF or Word document." },
+        { status: 400 }
+      )
     }
 
-    // Validate file size (5MB limit)
+    // validate size
     if (file.size > 5 * 1024 * 1024) {
-      return NextResponse.json({ error: "File too large. Please upload a file smaller than 5MB." }, { status: 400 })
+      return NextResponse.json(
+        { error: "File too large. Please upload a file smaller than 5MB." },
+        { status: 400 }
+      )
     }
 
-    // Create unique filename
+    // unique path
     const fileExtension = file.name.split(".").pop()
     const fileName = `${user.id}/resume_${Date.now()}.${fileExtension}`
 
-    // Upload to Supabase Storage
-    const { data: uploadData, error: uploadError } = await supabase.storage.from("resumes").upload(fileName, file, {
-      cacheControl: "3600",
-      upsert: true,
-    })
+    // convert file → Buffer for supabase-js
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+
+    // upload to Supabase storage
+    const { error: uploadError } = await supabase.storage
+      .from("resumes")
+      .upload(fileName, buffer, {
+        cacheControl: "3600",
+        upsert: true,
+        contentType: file.type,
+      })
 
     if (uploadError) {
       console.error("Upload error:", uploadError)
       return NextResponse.json({ error: "Failed to upload file" }, { status: 500 })
     }
 
-    // Get public URL
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from("resumes").getPublicUrl(fileName)
+    // get public URL
+    const { data } = supabase.storage.from("resumes").getPublicUrl(fileName)
+    const publicUrl = data.publicUrl
 
-    // Update user profile with resume URL
+    // update user profile
     const { error: updateError } = await supabase.from("user_profiles").upsert({
       user_id: user.id,
       resume_url: publicUrl,
@@ -66,7 +80,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Failed to update profile" }, { status: 500 })
     }
 
-    // Parse resume content (basic text extraction)
+    // parse resume content (stubbed)
     const resumeText = await extractTextFromFile(file)
     const parsedData = parseResumeText(resumeText)
 
@@ -82,68 +96,23 @@ export async function POST(request: NextRequest) {
 }
 
 async function extractTextFromFile(file: File): Promise<string> {
-  try {
-    // For PDF files, we would typically use a library like pdf-parse
-    // For Word files, we would use mammoth or similar
-    // For this demo, we'll simulate text extraction
-
-    if (file.type === "application/pdf") {
-      // In a real implementation, you would use pdf-parse or similar
-      return "Sample extracted text from PDF resume..."
-    } else if (file.type.includes("word")) {
-      // In a real implementation, you would use mammoth or similar
-      return "Sample extracted text from Word resume..."
-    }
-
-    return ""
-  } catch (error) {
-    console.error("Text extraction error:", error)
-    return ""
+  if (file.type === "application/pdf") {
+    return "Sample extracted text from PDF resume..."
+  } else if (file.type.includes("word")) {
+    return "Sample extracted text from Word resume..."
   }
+  return ""
 }
 
-function parseResumeText(text: string): {
-  skills: string[]
-  experience: string[]
-  education: string[]
-} {
-  // Basic resume parsing logic
-  // In a real implementation, you would use more sophisticated NLP
-
-  const commonSkills = [
-    "JavaScript",
-    "Python",
-    "Java",
-    "C++",
-    "React",
-    "Node.js",
-    "TypeScript",
-    "SQL",
-    "HTML",
-    "CSS",
-    "Git",
-    "Docker",
-    "AWS",
-    "Machine Learning",
-    "Data Analysis",
-    "UI/UX",
-    "Mobile Development",
-    "API Development",
-  ]
-
+function parseResumeText(text: string) {
+  const commonSkills = ["JavaScript", "Python", "Java", "C++", "React", "Node.js", "SQL", "AWS"]
   const foundSkills = commonSkills.filter((skill) => text.toLowerCase().includes(skill.toLowerCase()))
 
-  // Extract experience (simplified)
   const experienceKeywords = ["intern", "developer", "engineer", "analyst", "designer"]
-  const experience = experienceKeywords.filter((keyword) => text.toLowerCase().includes(keyword))
+  const experience = experienceKeywords.filter((k) => text.toLowerCase().includes(k))
 
-  // Extract education (simplified)
   const educationKeywords = ["university", "college", "bachelor", "master", "degree"]
-  const education = educationKeywords.filter((keyword) => text.toLowerCase().includes(keyword))
+  const education = educationKeywords.filter((k) => text.toLowerCase().includes(k))
 
-  return {
-    skills: foundSkills,
-    experience,
-    education,
-  }
+  return { skills: foundSkills, experience, education }
 }

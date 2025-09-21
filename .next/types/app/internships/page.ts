@@ -1,4 +1,4 @@
-// File: C:\Users\rinku\Downloads\matchmyskills\app\internships\page.tsx
+// File: D:\SIH\matchmyskills\app\internships\page.tsx
 import * as entry from '../../../../app/internships/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 
